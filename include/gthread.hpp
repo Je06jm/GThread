@@ -7,166 +7,290 @@
 #include <mutex>
 #include <thread>
 #include <functional>
+#include <unordered_map>
 
 namespace gthread {
 
+    inline size_t default_stack_size = 2*1024*1024;
+
     namespace __impl {
-        class thread {
+
+        class gthread {
         public:
-            using thread_function = void(*)(void*);
+            using Function = void (*)(void*);
 
-        protected:
-            const thread_function function;
-
-            std::unique_ptr<uint64_t[]> stack;
-            const size_t stack_size;
-
-            thread(thread_function function, size_t stack_size) : function{function}, stack_size{stack_size} {}
-
-            virtual void platform_swap(std::shared_ptr<thread> thread) = 0;
-
-        public:
-            virtual ~thread() = default;
-
-            void Swap(std::shared_ptr<thread> thread);
-            
-            virtual void Stop() = 0;
-
-            std::shared_ptr<thread> Create(thread_function function, size_t stack_size = 2*1024*1024);
-        };
-
-        class context {
         private:
-            std::mutex lock;
-            std::list<std::shared_ptr<thread>> threads;
-
-            std::list<std::shared_ptr<context>> other_ctxs;
-
-            std::shared_ptr<thread> scheduling;
-
-            void steal_thread_from_other_contexts();
-            void run_one_thread();
-        
-        public:
-            context();
-            ~context();
-
-            inline void add_other_context(std::shared_ptr<context> ctx) {
-                other_ctxs.push_back(ctx);
+            uint32_t flag_is_setup : 1;
+            uint32_t flag_is_stopped : 1;
+            
+        protected:
+            Function function;
+            void* user_params;
+            std::unique_ptr<uint64_t[]> stack;
+            size_t stack_size;
+            
+            inline gthread(Function function, void* user_params, size_t stack_size, bool is_setup) : function{function}, user_params{user_params}, stack_size{stack_size} {
+                flag_is_setup = is_setup ? 1 : 0;
+                flag_is_stopped = 0;
             }
 
-            void run_until_all_empty();
+            virtual void platform_setup() = 0;
+            virtual void platform_swap(std::shared_ptr<gthread> next) = 0;
 
-            void yield();
-            void exit();
+        public:
+            virtual ~gthread() {
+                stack = nullptr;
+            }
+
+            inline void swap(std::shared_ptr<gthread> next) {
+                if (!next->flag_is_setup) {
+                    next->stack = std::unique_ptr<uint64_t[]>(new uint64_t[next->stack_size / 8]);
+                    next->platform_setup();
+                    next->flag_is_setup = 1;
+                }
+                
+                platform_swap(next);
+            }
+
+            inline bool is_stopped() const {
+                return flag_is_stopped;
+            }
+
+            inline void stop() {
+                flag_is_stopped = 1;
+            }
+
+            static std::shared_ptr<gthread> create_default(Function function, void* user_params, size_t stack_size);
+            static std::shared_ptr<gthread> create_scheduling();
         };
 
-        thread_local std::shared_ptr<context> ctx;
+        struct context {
+            std::shared_ptr<gthread> scheduling;
+            std::shared_ptr<gthread> current;
+
+            static std::unordered_map<std::thread::id, context> contexts;
+
+            static void setup_kernel_thread_context();
+
+            static void process_green_threads();
+
+            static void yield_current_green_thread();
+            static void exit_current_green_thread();
+        };
 
         template <typename Type>
-        struct shared_state {
-            std::shared_ptr<std::unique_ptr<Type>> data;
-
-            inline shared_state() {
-                data = std::make_shared<std::unique_ptr<Type>>(nullptr);
+        class shared_state {
+        private:
+            struct State {
+                std::unique_ptr<Type> data;
+                std::exception_ptr exception;
             };
 
-            inline shared_state(shared_state&& other) : data{std::move(other.data)} {}
-            inline shared_state(const shared_state& other) noexcept : data{other.data} {}
-            
-            inline shared_state& operator=(shared_state&& other) noexcept {
-                data = std::move(other.data);
+            std::shared_ptr<State> state;
+        
+        public:
+            inline shared_state() {
+                state = std::make_shared<State>();
+                state->exception = nullptr;
+            }
+
+            inline shared_state(shared_state&& other) noexcept : state{std::move(other.state)} {}
+            inline shared_state(const shared_state& other) noexcept : state{other.state} {}
+
+            shared_state& operator=(shared_state&& other) noexcept {
+                state = std::move(other.state);
                 return *this;
             }
 
-            inline shared_state& operator=(const shared_state& other) noexcept {
-                data = other.data;
+            shared_state& operator=(const shared_state& other) noexcept {
+                state = other.state;
                 return *this;
             }
 
-            inline void swap(shared_state& other) noexcept {
-                std::swap(data, other.data);
+            bool has_data() const noexcept {
+                return state != nullptr && state->data != nullptr;
             }
 
-            inline bool valid() const noexcept {
-                return *data != nullptr;
+            bool has_exception() const noexcept {
+                return state != nullptr && state->exception != nullptr;
             }
 
-            inline const Type& get_data() const noexcept {
-                wait();
-
-                return *(*data);
+            const Type& get_data() const {
+                return *state->data;
             }
 
-            inline Type& get_data() const noexcept {
-                wait();
-
-                return *(*data);
+            Type& get_data() {
+                return *state->data;
             }
 
-            inline void set_data(Type&& value) {
-                *data = std::make_unique<Type>(std::move(value));
+            void set_data(Type&& value) {
+                if (!has_data())
+                    state->data = std::make_unique<Type>(std::move(value));
+                
+                else
+                    *state->data = std::move(value);
             }
 
-            inline void set_data(const Type& value) {
-                *data = std::make_unique<Type>(value);
+            void set_data(const Type& value) {
+                if (!has_data())
+                    state->data = std::make_unique<Type>(value);
+                
+                else
+                    *state->data = value;
             }
+
+            const std::exception_ptr& get_exception() const {
+                return state->exception;
+            }
+
+            std::exception_ptr& get_exception() {
+                return state->exception;
+            }
+
+            void set_exception(const std::exception_ptr& e) {
+                state->exception = e;
+            }
+
+            friend bool operator==(const shared_state& lhs, const shared_state& rhs) {
+                return lhs.state == rhs.state;
+            }
+
+            friend bool operator!=(const shared_state& lhs, const shared_state& rhs) {
+                return lhs.state != rhs.state;
+            }
+        };
+    
+        class kernel_thread_manager {
+        private:
+            bool running = true;
+            std::list<std::thread> threads;
+
+        public:
+            void init();
+            void finish();
+
+            kernel_thread_manager() {
+                context::setup_kernel_thread_context();
+                init();
+            }
+
+            ~kernel_thread_manager() {
+                finish();
+            }
+        };
+
+        inline kernel_thread_manager thread_manager;
+
+
+        enum class gen_status {
+            uninit,
+            produced,
+            consumed,
+            ended
+        };
+
+        template <typename Type>
+        struct gen_state {
+            Type data;
+            gen_status status;
         };
     }
 
     template <typename Type>
+    class promise;
+
+    template <typename Type>
     class future {
-        friend class promise<Type>;
-    
+        friend promise<Type>;
+
     private:
         __impl::shared_state<Type> state;
-        __impl::shared_state<std::exception> exception;
     
-        inline future(__impl::shared_state<Type>& state, __impl::shared_state<std::exception>& exception) : state{state}, exception{exception} {}
-    
+        future(const __impl::shared_state<Type>& state) : state{state} {}
     public:
         future() = default;
-        inline future(future&& other) noexcept : state{std::move(other.state)}, exception{std::move(other.exception)} {}
+        future(future&& other) noexcept : state{std::move(other.state)} {}
         future(const future&) = delete;
 
-        inline future& operator=(future&& other) noexcept {
+        future& operator=(future&& other) noexcept {
             state = std::move(other.state);
-            exception = std::move(other.exception);
             return *this;
         }
 
         future& operator=(const future&) = delete;
 
-        inline void swap(future& other) noexcept {
-            state.swap(other.state);
+        void wait() const {
+            while (!state.has_data() && !state.has_exception()) __impl::context::yield_thread();
         }
 
-        inline const Type& get() const {
-            return state.get();
+        const Type& get() const {
+            wait();
+
+            if (state.has_exception())
+                std::rethrow_exception(state.get_exception());
+            
+            return state.get_data();
         }
 
-        inline Type& get() const {
-            return state.get();
+        Type& get() {
+            wait();
+
+            if (state.has_exception())
+                std::rethrow_exception(state.get_exception());
+            
+            return state.get_data();
         }
+
+        bool has_data() const {
+            return state.has_data();
+        }
+
+        bool has_exception() const {
+            return state.has_exception();
+        }
+
+        const std::exception_ptr& exception() const {
+            return state.exception();
+        }
+
+        std::exception_ptr& exception() {
+            return state.exception();
+        }
+
+        operator bool() const {
+            return state.has_data();
+        }
+    };
+
+    template <>
+    class future<void> {
+        friend promise<void>;
         
-        inline const std::exception& err() const {
-            return exception.get_data();
+    private:
+        __impl::shared_state<bool> state;
+    
+        future(const __impl::shared_state<bool>& state) : state{state} {}
+    public:
+        future() = default;
+        future(future&& other) noexcept : state{std::move(other.state)} {}
+        future(const future&) = delete;
+
+        future& operator=(future&& other) noexcept {
+            state = std::move(other.state);
+            return *this;
         }
 
-        inline std::exception& err() const {
-            return exception.get_data();
+        future& operator=(const future&) = delete;
+
+        void wait() const {
+            while (!state.has_data() && !state.has_exception()) __impl::context::yield_current_green_thread();
         }
 
-        inline bool valid() const noexcept {
-            return state.valid() || exception.valid();
-        }
+        void get() const {
+            wait();
 
-        inline void wait() const noexcept {
-            while (!valid()) __impl::ctx->yield();
-        }
-
-        inline bool has_err() const noexcept {
-            return exception.valid();
+            if (state.has_exception())
+                std::rethrow_exception(state.get_exception());
         }
     };
 
@@ -174,83 +298,33 @@ namespace gthread {
     class promise {
     private:
         __impl::shared_state<Type> state;
-        __impl::shared_state<std::exception> exception;
-    
+
     public:
         promise() = default;
-        inline promise(promise&& other) noexcept : state{std::move(other.state)}, exception{std::move(other.exception)} {}
+        promise(promise&& other) noexcept : state{std::move(other.state)} {}
         promise(const promise&) = delete;
 
         promise& operator=(promise&& other) noexcept {
             state = std::move(other.state);
-            exception = std::move(other.exception);
             return *this;
         }
 
-        promise& operator=(const promise&) = delete;
+        promise& operator=(const promise) = delete;
 
-        inline future<Type> get_future() {
-            return future<Type>(state);
-        }
-
-        inline void set_value(Type&& value) {
+        void set(Type&& value) {
             state.set_data(std::move(value));
         }
 
-        inline void set_value(const Type& value) {
+        void set(const Type& value) {
             state.set_data(value);
         }
 
-        inline void set_exception(std::exception&& e) {
-            exception.set_data(std::move(e));
+        void raise(std::exception_ptr e) {
+            state.set_exception(e);
         }
 
-        inline void set_exception(const std::exception& e) {
-            exception.set_data(e);
-        }
-
-        inline void swap(promise& other) {
-            state.swap(other.state);
-        }
-    };
-
-    template <>
-    class future<void> {
-        friend class promise<void>;
-    
-    private:
-        __impl::shared_state<bool> state;
-        __impl::shared_state<std::exception> exception;
-
-        inline future(__impl::shared_state<bool>& state, __impl::shared_state<std::exception>& exception) : state{state}, exception{exception} {}
-    
-    public:
-        future() = default;
-        inline future(future&& other) noexcept : state{std::move(other.state)}, exception{std::move(other.exception)} {}
-        future(const future&) = delete;
-
-        inline future& operator=(future&& other) noexcept {
-            state = std::move(other.state);
-            exception = std::move(other.exception);
-            return *this;
-        }
-
-        future& operator=(const future& other) = delete;
-
-        inline void swap(future& other) noexcept {
-            state.swap(other.state);
-        }
-
-        inline const void get() const {
-            while (!valid()) __impl::ctx->yield();
-        }
-
-        inline bool valid() const noexcept {
-            return state.valid() || exception.valid();
-        }
-
-        inline void wait() const noexcept {
-            while (!valid()) __impl::ctx->yield();
+        future<Type> get_future() const {
+            return future<Type>(state);
         }
     };
 
@@ -258,85 +332,88 @@ namespace gthread {
     class promise<void> {
     private:
         __impl::shared_state<bool> state;
-        __impl::shared_state<std::exception> exception;
     
     public:
         promise() = default;
-        inline promise(promise&& other) noexcept : state{std::move(other.state)}, exception{std::move(other.exception)} {}
+        promise(promise&& other) noexcept : state{std::move(other.state)} {}
         promise(const promise&) = delete;
-
+    
         promise& operator=(promise&& other) noexcept {
             state = std::move(other.state);
-            exception = std::move(other.exception);
             return *this;
         }
 
-        promise& operator=(const promise&) = delete;
+        promise& operator=(const promise) = delete;
 
-        inline future<void> get_future() {
-            return future<void>(state, exception);
-        }
-
-        inline void set_value() {
+        void set() {
             state.set_data(true);
         }
 
-        inline void set_exception(std::exception&& e) {
-            exception.set_data(std::move(e));
+        void raise(std::exception_ptr e) {
+            state.set_exception(e);
         }
 
-        inline void set_exception(const std::exception& e) {
-            exception.set_data(e);
-        }
-
-        inline void swap(promise& other) {
-            state.swap(other.state);
+        future<void> get_future() const {
+            return future<void>(state);
         }
     };
 
     template <typename Func, typename... Args>
-    auto execute(Func&& func, Args&&... args) -> promise<decltype(func(args...))> {
-        using Ret = decltype(func(args...));
-        using BindType = decltype(std::bind(func, args...));
+    auto execute(Func&& func, Args&&... args) -> future<decltype(func(args...))> {
+        using RetType = decltype(func(args...));
+        using BindingType = decltype(std::bind(func, args...));
 
-        using UserParams = std::tuple<BindType, promise<Ret>>;
+        using UserParams = std::tuple<BindingType, promise<RetType>>;
 
-        promise<Ret> p;
+        auto p = promise<RetType>();
         auto f = p.get_future();
 
         auto user_params = new UserParams{std::bind(func, args...), std::move(p)};
 
-        auto calling_lambda = +[](void* params_pointer) -> void {
-            auto user_params = reinterpret_cast<UserParams*>(params_pointer);
+        auto calling_lambda = +[](void* params_pointer) {
+            auto user_params = static_cast<UserParams*>(params_pointer);
 
-            auto& [bind, p] = *user_params;
+            auto& [b, p] = *user_params;
 
             try {
-                if constexpr (std::is_same_v<Ret, void>) {
-                    bind();
-                    p.set_value();
+                if constexpr (std::is_same_v<RetType, void>) {
+                    b();
+                    p.set();
                 }
-                else
-                    p.set_value(bind());
+                else {
+                    p.set(b());
+                }
             }
-            catch (std::exception& e) {
-                p.set_exception(e);
+            catch (...) {
+                p.raise(std::current_exception());
             }
 
             delete user_params;
 
-            __impl::ctx->exit();
+            __impl::context::exit_thread();
         };
+
+        auto thread = __impl::gthread::create_default(calling_lambda, user_params, 2097152);
+
+        __impl::context::lock.lock();
+        __impl::context::threads.push_back(thread);
+        __impl::context::lock.unlock();
+
+        return f;
     }
 
+
     inline void yield() {
-        __impl::ctx->yield();
+        __impl::context::yield_current_green_thread();
     }
 
     inline void exit() {
-        __impl::ctx->exit();
+        __impl::context::exit_current_green_thread();
     }
 
 }
+
+#define GTHREAD_INIT() gthread::__impl::thread_manager.init()
+#define GTHREAD_FINISH() gthread::__impl::thread_manager.finish();
 
 #endif
