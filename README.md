@@ -2,7 +2,7 @@
 A simple to use green thread library for c++17
 
 ## Description
-GThreads is a userland thread library designed to be easy to use and add to any project. Each gthread allocates it's stack only when it first runs to minimize the memory footprint. Additionally, each gthread stack size can be changed by changing gthread::default_stack_size during runtime to allow fine tuning of the stack size. At the moment only x86_64 build targets are supported
+GThreads is a userland thread library designed to be easy to use and add to any project. Each gthread allocates it's stack only when it first runs to minimize the memory footprint. Additionally, each gthread stack size can be changed by changing gthread::default_stack_size during runtime to allow fine tuning of the stack size. At the moment only x86 and x86_64 build targets are supported
 
 ## Getting Started
 ### Dependencies
