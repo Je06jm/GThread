@@ -1,4 +1,4 @@
-#if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
+#if (defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))) && defined(__x86_64__)
 #include <gthread.hpp>
 
 namespace gthread::__impl {
