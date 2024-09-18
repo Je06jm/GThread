@@ -1,7 +1,7 @@
 #include <gthread.hpp>
 
-#include "gthread_win_amd64.hpp"
-#include "gthread_sysv_amd64.hpp"
+#include "gthread_win_x86_64.hpp"
+#include "gthread_sysv_x86_64.hpp"
 
 #include <iostream>
 #include <atomic>
