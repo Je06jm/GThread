@@ -63,7 +63,7 @@ namespace gthread {
         };
 
         class context {
-            friend class kernel_threads_manager;
+            friend struct kernel_threads_manager;
 
         public:
             std::shared_ptr<gthread> scheduling;
