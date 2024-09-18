@@ -38,9 +38,7 @@ namespace gthread {
             virtual void platform_swap(std::shared_ptr<gthread> next) = 0;
 
         public:
-            virtual ~gthread() {
-                stack = nullptr;
-            }
+            virtual ~gthread() {}
 
             inline void swap(std::shared_ptr<gthread> next) {
                 if (!next->flag_is_setup) {
@@ -64,19 +62,61 @@ namespace gthread {
             static std::shared_ptr<gthread> create_scheduling();
         };
 
-        struct context {
+        class context {
+            friend class kernel_threads_manager;
+
+        public:
             std::shared_ptr<gthread> scheduling;
             std::shared_ptr<gthread> current;
 
-            static std::unordered_map<std::thread::id, context> contexts;
+        private:
+            context(std::shared_ptr<gthread>& scheduling) : scheduling{scheduling} {}
 
-            static void setup_kernel_thread_context();
+        public:
+            context() = default;
+            context(context&& other) : scheduling{std::move(other.scheduling)}, current{std::move(other.current)} {}
+            context(const context&) = delete;
 
-            static void process_green_threads();
+            context& operator=(context&& other) {
+                scheduling = std::move(other.scheduling);
+                current = std::move(other.current);
+                return *this;
+            }
 
-            static void yield_current_green_thread();
-            static void exit_current_green_thread();
+            context& operator=(const context&) = delete;
         };
+
+        struct kernel_threads_manager {
+            std::unordered_map<std::thread::id, context> contexts;
+            std::list<std::shared_ptr<gthread>> green_threads;
+            std::mutex lock;
+
+            bool running = true;
+
+            std::list<std::thread> threads;
+
+            void init();
+            void finish();
+
+            kernel_threads_manager() {
+#ifdef GTHREAD_INIT_ON_START
+                init();
+#endif
+            }
+
+            ~kernel_threads_manager() {
+                finish();
+            }
+
+            void setup_kernel_thread_context();
+
+            void process_green_threads();
+
+            void yield_current_green_thread();
+            void exit_current_green_thread();
+        };
+
+        inline kernel_threads_manager kernel_threads;
 
         template <typename Type>
         class shared_state {
@@ -159,28 +199,6 @@ namespace gthread {
                 return lhs.state != rhs.state;
             }
         };
-    
-        class kernel_thread_manager {
-        private:
-            bool running = true;
-            std::list<std::thread> threads;
-
-        public:
-            void init();
-            void finish();
-
-            kernel_thread_manager() {
-                context::setup_kernel_thread_context();
-                init();
-            }
-
-            ~kernel_thread_manager() {
-                finish();
-            }
-        };
-
-        inline kernel_thread_manager thread_manager;
-
 
         enum class gen_status {
             uninit,
@@ -220,7 +238,7 @@ namespace gthread {
         future& operator=(const future&) = delete;
 
         void wait() const {
-            while (!state.has_data() && !state.has_exception()) __impl::context::yield_thread();
+            while (!state.has_data() && !state.has_exception()) __impl::kernel_threads.yield_current_green_thread();
         }
 
         const Type& get() const {
@@ -283,7 +301,7 @@ namespace gthread {
         future& operator=(const future&) = delete;
 
         void wait() const {
-            while (!state.has_data() && !state.has_exception()) __impl::context::yield_current_green_thread();
+            while (!state.has_data() && !state.has_exception()) __impl::kernel_threads.yield_current_green_thread();
         }
 
         void get() const {
@@ -390,30 +408,29 @@ namespace gthread {
 
             delete user_params;
 
-            __impl::context::exit_thread();
+            __impl::kernel_threads.exit_current_green_thread();
         };
 
-        auto thread = __impl::gthread::create_default(calling_lambda, user_params, 2097152);
+        auto thread = __impl::gthread::create_default(calling_lambda, user_params, default_stack_size);
 
-        __impl::context::lock.lock();
-        __impl::context::threads.push_back(thread);
-        __impl::context::lock.unlock();
+        __impl::kernel_threads.lock.lock();
+        __impl::kernel_threads.green_threads.push_back(thread);
+        __impl::kernel_threads.lock.unlock();
 
         return f;
     }
 
-
     inline void yield() {
-        __impl::context::yield_current_green_thread();
+        __impl::kernel_threads.yield_current_green_thread();
     }
 
     inline void exit() {
-        __impl::context::exit_current_green_thread();
+        __impl::kernel_threads.exit_current_green_thread();
     }
 
 }
 
-#define GTHREAD_INIT() gthread::__impl::thread_manager.init()
-#define GTHREAD_FINISH() gthread::__impl::thread_manager.finish();
+#define GTHREAD_INIT() gthread::__impl::kernel_threads.init()
+#define GTHREAD_FINISH() gthread::__impl::kernel_threads.finish();
 
 #endif
