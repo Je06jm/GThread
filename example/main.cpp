@@ -2,6 +2,86 @@
 
 #include <iostream>
 #include <vector>
+#include <cstdlib>
+
+std::list<int> sort_helper(std::list<int> lhs, std::list<int> rhs) {
+    if (lhs.size() == 0)
+        return rhs;
+    
+    if (rhs.size() == 0)
+        return lhs;
+
+    gthread::future<std::list<int>> f_lhs, f_rhs;
+
+    auto split = [](const std::list<int>& value, std::list<int>& lower, std::list<int>& upper) {
+        auto half = value.size() / 2;
+        auto it = value.begin();
+        for (size_t i = 0; i < value.size(); i++, it++) {
+            if (i < half)
+                lower.push_back(*it);
+            
+            else
+                upper.push_back(*it);
+        }
+    };
+
+    {
+        std::list<int> lower, upper;
+        split(lhs, lower, upper);
+        f_lhs = gthread::execute(sort_helper, lower, upper);
+    }
+
+    {
+        std::list<int> lower, upper;
+        split(rhs, lower, upper);
+        f_rhs = gthread::execute(sort_helper, lower, upper);
+    }
+
+    auto l_lhs = f_lhs.get();
+    auto l_rhs = f_rhs.get();
+
+    std::list<int> sorted;
+
+    while (l_lhs.size() && l_rhs.size()) {
+        if (l_lhs.front() < l_rhs.front()) {
+            sorted.push_back(l_lhs.front());
+            l_lhs.pop_front();
+        }
+        else {
+            sorted.push_back(l_rhs.front());
+            l_rhs.pop_front();
+        }
+    }
+
+    while (l_lhs.size()) {
+        sorted.push_back(l_lhs.front());
+        l_lhs.pop_front();
+    }
+
+    while (l_rhs.size()) {
+        sorted.push_back(l_rhs.front());
+        l_rhs.pop_front();
+    }
+
+    return sorted;
+}
+
+std::list<int> sort(std::list<int> unsorted) {
+    auto half = unsorted.size() / 2;
+    std::list<int> lower, upper;
+    auto it = unsorted.begin();
+    for (size_t i = 0; unsorted.size(); i++, it++) {
+        if (i < half) {
+            lower.push_back(unsorted.front());
+            unsorted.pop_front();
+        }
+        else {
+            upper.push_back(unsorted.front());
+            unsorted.pop_front();
+        }
+    }
+    return sort_helper(lower, upper);
+}
 
 std::vector<int> it(int begin, int end) {
     std::vector<int> a;
@@ -12,7 +92,6 @@ std::vector<int> it(int begin, int end) {
 }
 
 std::thread::id get_id() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     return std::this_thread::get_id();
 }
 
@@ -33,4 +112,19 @@ int main() {
     for (auto& id : ids) {
         std::cout << std::hash<std::thread::id>()(id.get()) << std::endl;
     }
+
+    srand(time(nullptr));
+
+    std::list<int> v;
+    for (int i = 0; i < 50; i++) {
+        v.push_back(rand() % 100);
+    }
+
+    auto f_v = gthread::execute(sort, v);
+
+    for (auto& value : f_v.get()) {
+        std::cout << value << " ";
+    }
+    
+    std::cout << std::endl;
 }
