@@ -1,5 +1,5 @@
 CXX = g++
-CXX_FLAGS = -m32 -std=c++17 -Wall -Wextra -Iinclude
+CXX_FLAGS = -std=c++17 -Wall -Wextra -Iinclude
 
 AR = ar
 AR_FLAGS = rcs
