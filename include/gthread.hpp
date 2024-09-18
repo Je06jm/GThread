@@ -286,11 +286,11 @@ namespace gthread {
         }
 
         const std::exception_ptr& exception() const {
-            return state.exception();
+            return state.get_exception();
         }
 
         std::exception_ptr& exception() {
-            return state.exception();
+            return state.get_exception();
         }
 
         operator bool() const {
@@ -329,6 +329,26 @@ namespace gthread {
 
             if (state.has_exception())
                 std::rethrow_exception(state.get_exception());
+        }
+
+        bool has_data() const {
+            return state.has_data();
+        }
+
+        bool has_exception() const {
+            return state.has_exception();
+        }
+
+        const std::exception_ptr& exception() const {
+            return state.get_exception();
+        }
+
+        std::exception_ptr& exception() {
+            return state.get_exception();
+        }
+
+        operator bool() const {
+            return state.has_data();
         }
     };
 
