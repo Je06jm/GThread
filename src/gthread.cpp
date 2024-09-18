@@ -50,10 +50,6 @@ namespace gthread::__impl {
 
             lock.unlock();
 
-            if (!ctx.scheduling) {
-                std::cout << "ERROR!" << std::endl;
-                std::exit(EXIT_FAILURE);
-            }
             ctx.scheduling->swap(ctx.current);
             
             if (!ctx.current->is_stopped()) {
