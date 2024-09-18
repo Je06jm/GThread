@@ -116,13 +116,6 @@ namespace gthread {
             // Cleans up kernel threads
             void finish();
 
-            // If GTHREAD_INIT_ON_START is defined, init is automatically called before main()
-            kernel_threads_manager() {
-#ifdef GTHREAD_INIT_ON_START
-                init();
-#endif
-            }
-
             // Calls finish after main() returns
             ~kernel_threads_manager() {
                 finish();
@@ -142,6 +135,16 @@ namespace gthread {
         };
 
         inline kernel_threads_manager kernel_threads;
+
+#ifdef GTHREAD_INIT_ON_START
+        struct gthread_init_on_start {
+            gthread_init_on_start() {
+                kernel_threads.init();
+            }
+        };
+
+        inline gthread_init_on_start init_on_start;
+#endif
 
         // A helper class to manage the shared state of any promise future pair
         template <typename Type>
