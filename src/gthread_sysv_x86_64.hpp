@@ -5,9 +5,9 @@ namespace gthread::__impl {
 
     // The gthread class to handle the System V 64 bit C calling convention
     // See more here: https://en.wikipedia.org/wiki/X86_calling_conventions#x86-64_calling_conventions
-    class sysv_amd64_gthread : public gthread {
+    class sysv_x86_64_gthread : public gthread {
     public:
-        sysv_amd64_gthread(Function function, void* user_params, size_t stack_size, bool is_setup) : gthread{function, user_params, stack_size, is_setup} {}
+        sysv_x86_64_gthread(Function function, void* user_params, size_t stack_size, bool is_setup) : gthread{function, user_params, stack_size, is_setup} {}
 
         struct platform_context {
             uint64_t rsp;
@@ -72,7 +72,7 @@ namespace gthread::__impl {
         }
 
         void platform_swap(std::shared_ptr<gthread> next) override {
-            auto next_thread = static_cast<sysv_amd64_gthread*>(next.get());
+            auto next_thread = static_cast<sysv_x86_64_gthread*>(next.get());
             swap_platform_contexts(&platform_ctx, &next_thread->platform_ctx);
         }
     };
