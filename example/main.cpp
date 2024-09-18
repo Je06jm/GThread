@@ -16,7 +16,8 @@ std::list<int> sort_helper(std::list<int> lhs, std::list<int> rhs) {
     auto split = [](const std::list<int>& value, std::list<int>& lower, std::list<int>& upper) {
         auto half = value.size() / 2;
         auto it = value.begin();
-        for (size_t i = 0; i < value.size(); i++, it++) {
+        auto end = value.end();
+        for (size_t i = 0; it != end; i++, it++) {
             if (i < half)
                 lower.push_back(*it);
             
@@ -70,14 +71,13 @@ std::list<int> sort(std::list<int> unsorted) {
     auto half = unsorted.size() / 2;
     std::list<int> lower, upper;
     auto it = unsorted.begin();
-    for (size_t i = 0; unsorted.size(); i++, it++) {
+    auto end = unsorted.end();
+    for (size_t i = 0; it != end; i++, it++) {
         if (i < half) {
-            lower.push_back(unsorted.front());
-            unsorted.pop_front();
+            lower.push_back(*it);
         }
         else {
-            upper.push_back(unsorted.front());
-            unsorted.pop_front();
+            upper.push_back(*it);
         }
     }
     return sort_helper(lower, upper);
@@ -116,7 +116,7 @@ int main() {
     srand(time(nullptr));
 
     std::list<int> v;
-    for (int i = 0; i < 50; i++) {
+    for (int i = 0; i < 20; i++) {
         v.push_back(rand() % 100);
     }
 
