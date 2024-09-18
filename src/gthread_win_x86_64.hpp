@@ -1,4 +1,4 @@
-#ifdef _WIN32
+#if defined(_WIN32) && defined(__x86_64__)
 #include <gthread.hpp>
 
 namespace gthread::__impl {

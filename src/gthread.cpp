@@ -2,6 +2,7 @@
 
 #include "gthread_win_x86_64.hpp"
 #include "gthread_sysv_x86_64.hpp"
+#include "gthread_x86.hpp"
 
 #include <iostream>
 #include <atomic>
@@ -10,18 +11,26 @@ namespace gthread::__impl {
 
     std::shared_ptr<gthread> gthread::create_default(Function function, void* user_params, size_t stack_size) {
         stack_size = (stack_size + 15) & ~15;
+#ifdef __x86_64__
 #ifdef _WIN32
         return std::make_shared<win_x86_64_gthread>(function, user_params, stack_size, false);
 #elif defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
         return std::make_shared<sysv_x86_64_gthread>(function, user_params, stack_size, false);
 #endif
+#elif __i386__
+        return std::make_shared<x86_gthread>(function, user_params, stack_size, false);
+#endif
     }
 
     std::shared_ptr<gthread> gthread::create_scheduling() {
+#ifdef __x86_64__
 #ifdef _WIN32
         auto gthread = std::make_shared<win_x86_64_gthread>(nullptr, nullptr, 0, true);
 #elif defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
         auto gthread = std::make_shared<sysv_x86_64_gthread>(nullptr, nullptr, 0, true);
+#endif
+#elif  __i386__
+        auto gthread = std::make_shared<x86_gthread>(nullptr, nullptr, 0, true);
 #endif
         gthread->swap(gthread);
         return gthread;
