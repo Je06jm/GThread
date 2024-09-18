@@ -11,10 +11,13 @@
 
 namespace gthread {
 
+    // This is only used when creating new gthreads. All stack sizes are aligned to the next 16 byte boundary
     inline size_t default_stack_size = 2*1024*1024;
 
     namespace __impl {
 
+        // Base class that all platform specific green thread classes inherits from.
+        // GThreads are lazily setup when it's time to switch to them
         class gthread {
         public:
             using Function = void (*)(void*);
@@ -29,17 +32,22 @@ namespace gthread {
             std::unique_ptr<uint64_t[]> stack;
             size_t stack_size;
             
+            // No work is actually done here, just data needed for setup
             inline gthread(Function function, void* user_params, size_t stack_size, bool is_setup) : function{function}, user_params{user_params}, stack_size{stack_size} {
                 flag_is_setup = is_setup ? 1 : 0;
                 flag_is_stopped = 0;
             }
 
+            // Platform specific setup happens here. This is called after the stack is allocated
             virtual void platform_setup() = 0;
+
+            // Platform specific context switch happens here
             virtual void platform_swap(std::shared_ptr<gthread> next) = 0;
 
         public:
             virtual ~gthread() {}
 
+            // A helper function that setups up the gthread if it's not already. Also allocates the stack if needed. Then platform_swap is called
             inline void swap(std::shared_ptr<gthread> next) {
                 if (!next->flag_is_setup) {
                     next->stack = std::unique_ptr<uint64_t[]>(new uint64_t[next->stack_size / 8]);
@@ -50,18 +58,24 @@ namespace gthread {
                 platform_swap(next);
             }
 
+            // Return true if the green thread is stopped and needs to be cleaned up
             inline bool is_stopped() const {
                 return flag_is_stopped;
             }
 
+            // Stops the green thread
             inline void stop() {
                 flag_is_stopped = 1;
             }
 
+            // Creates a regular green thread
             static std::shared_ptr<gthread> create_default(Function function, void* user_params, size_t stack_size);
+
+            // Creates a special green thread to represent a kernel thread. This is used for scheduling purposes
             static std::shared_ptr<gthread> create_scheduling();
         };
 
+        // A helper class that holds the scheduling and current threads. Each kernel thread has exactly one of these
         class context {
             friend struct kernel_threads_manager;
 
@@ -86,6 +100,7 @@ namespace gthread {
             context& operator=(const context&) = delete;
         };
 
+        // Handles the creation and destruction of kernel threads. Also has functions to manage the current gthread and houses the scheduler
         struct kernel_threads_manager {
             std::unordered_map<std::thread::id, context> contexts;
             std::list<std::shared_ptr<gthread>> green_threads;
@@ -95,29 +110,40 @@ namespace gthread {
 
             std::list<std::thread> threads;
 
+            // Creates the kernel threads and sets up all kernel threads
             void init();
+
+            // Cleans up kernel threads
             void finish();
 
+            // If GTHREAD_INIT_ON_START is defined, init is automatically called before main()
             kernel_threads_manager() {
 #ifdef GTHREAD_INIT_ON_START
                 init();
 #endif
             }
 
+            // Calls finish after main() returns
             ~kernel_threads_manager() {
                 finish();
             }
 
+            // Sets up the scheduling green thread and a context for the kernel thread
             void setup_kernel_thread_context();
 
+            // Runs all the green threads, only returning when all are processed
             void process_green_threads();
 
+            // Yields the current gthread. If this is called without a current gthread, the scheduler is ran
             void yield_current_green_thread();
+
+            // Exits the current gthread. If this is 
             void exit_current_green_thread();
         };
 
         inline kernel_threads_manager kernel_threads;
 
+        // A helper class to manage the shared state of any promise future pair
         template <typename Type>
         class shared_state {
         private:
@@ -199,24 +225,12 @@ namespace gthread {
                 return lhs.state != rhs.state;
             }
         };
-
-        enum class gen_status {
-            uninit,
-            produced,
-            consumed,
-            ended
-        };
-
-        template <typename Type>
-        struct gen_state {
-            Type data;
-            gen_status status;
-        };
     }
 
     template <typename Type>
     class promise;
 
+    // A custom version of std::future that yields the current gthread instead of blocking the current
     template <typename Type>
     class future {
         friend promise<Type>;
@@ -237,6 +251,7 @@ namespace gthread {
 
         future& operator=(const future&) = delete;
 
+        // Yields if data has not been set by the corrsponding promise object
         void wait() const {
             while (!state.has_data() && !state.has_exception()) __impl::kernel_threads.yield_current_green_thread();
         }
@@ -280,6 +295,7 @@ namespace gthread {
         }
     };
 
+    // A custom version of std::future that yields the current gthread instead of blocking the current
     template <>
     class future<void> {
         friend promise<void>;
@@ -300,6 +316,7 @@ namespace gthread {
 
         future& operator=(const future&) = delete;
 
+        // Yields if data has not been set by the corrsponding promise object
         void wait() const {
             while (!state.has_data() && !state.has_exception()) __impl::kernel_threads.yield_current_green_thread();
         }
@@ -312,6 +329,7 @@ namespace gthread {
         }
     };
 
+    // A custom version of std::promise
     template <typename Type>
     class promise {
     private:
@@ -346,6 +364,7 @@ namespace gthread {
         }
     };
 
+    // A custom version of std::promise
     template <>
     class promise<void> {
     private:
@@ -376,6 +395,8 @@ namespace gthread {
         }
     };
 
+    // Creates a new gthread that executes func(args...) and returns a future.
+    // The return value of func is used to set the corrsponding future object
     template <typename Func, typename... Args>
     auto execute(Func&& func, Args&&... args) -> future<decltype(func(args...))> {
         using RetType = decltype(func(args...));
@@ -430,7 +451,7 @@ namespace gthread {
 
 }
 
+// If GTHREAD_INIT_ON_START is not defined, this must be used before any gthread is created
 #define GTHREAD_INIT() gthread::__impl::kernel_threads.init()
-#define GTHREAD_FINISH() gthread::__impl::kernel_threads.finish();
 
 #endif

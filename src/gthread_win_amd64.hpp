@@ -3,6 +3,8 @@
 
 namespace gthread::__impl {
 
+    // The gthread class to handle the Windows 64 bit C calling convention
+    // See more here: https://en.wikipedia.org/wiki/X86_calling_conventions#x86-64_calling_conventions
     class win_amd64_gthread : public gthread {
     public:
         win_amd64_gthread(Function function, void* user_params, size_t stack_size, bool is_setup) : gthread{function, user_params, stack_size, is_setup} {}

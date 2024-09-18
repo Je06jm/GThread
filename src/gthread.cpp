@@ -65,6 +65,7 @@ namespace gthread::__impl {
     void kernel_threads_manager::yield_current_green_thread() {
         auto& ctx = contexts[std::this_thread::get_id()];
 
+        // If the context does not have a current gthread, then this has been called from the main kernel thread
         if (!ctx.current)
             process_green_threads();
         
@@ -75,6 +76,8 @@ namespace gthread::__impl {
     void kernel_threads_manager::exit_current_green_thread() {
         auto& ctx = contexts[std::this_thread::get_id()];
 
+        // If the context does not have a current gthread, then this has been called from the main kernel thread
+        // I'm not sure what to do here
         if (!ctx.current)
             std::exit(EXIT_FAILURE);
         
@@ -89,6 +92,12 @@ namespace gthread::__impl {
 
         auto thread_count = std::thread::hardware_concurrency() - 1;
 
+        // All kernel thread context objects are held in the same unordered_map object.
+        // All kernel threads must go into a lock loop until all threads have finished writing to the unordered_map.
+        // inited indicates how many kernel threads are in the lock loop.
+        // ack indicates how many threads have acknoledged that they are free to continue.
+        // All this is done to ensure that the unordered_map only needs to be locked during kernel thread setup.
+        // In addition, ack is used to make sure that inited does not go out of scope while kernel threads are using it.
         std::atomic<size_t> inited = 0;
         std::atomic<size_t> ack = 0;
         for (size_t i = 0; i < thread_count; i++) {
@@ -108,7 +117,10 @@ namespace gthread::__impl {
             }, &running));
         }
 
+        // Wait for all kernel threads are done setting up
         while (inited != thread_count) {}
+
+        // Wait for all kernel threads to acknowledge that it's done with inited so it can go out of scope
         while (ack != thread_count) {}
     }
 
