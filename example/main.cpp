@@ -1,6 +1,7 @@
 #include <gthread.hpp>
 
 #include <iostream>
+#include <vector>
 
 std::vector<int> it(int begin, int end) {
     std::vector<int> a;
