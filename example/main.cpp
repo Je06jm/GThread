@@ -116,7 +116,7 @@ int main() {
     srand(time(nullptr));
 
     std::list<int> v;
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 50; i++) {
         v.push_back(rand() % 100);
     }
 
