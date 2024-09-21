@@ -127,9 +127,6 @@ namespace gthread::__impl {
             }, &running));
         }
 
-        // Wait for all kernel threads are done setting up
-        while (inited != thread_count) {}
-
         // Wait for all kernel threads to acknowledge that it's done with inited so it can go out of scope
         while (ack != thread_count) {}
     }
