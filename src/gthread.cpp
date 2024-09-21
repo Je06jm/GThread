@@ -104,7 +104,7 @@ namespace gthread::__impl {
         // All kernel thread context objects are held in the same unordered_map object.
         // All kernel threads must go into a lock loop until all threads have finished writing to the unordered_map.
         // inited indicates how many kernel threads are in the lock loop.
-        // ack indicates how many threads have acknoledged that they are free to continue.
+        // ack indicates how many threads have acknowledged that they are free to continue.
         // All this is done to ensure that the unordered_map only needs to be locked during kernel thread setup.
         // In addition, ack is used to make sure that inited does not go out of scope while kernel threads are using it.
         std::atomic<size_t> inited = 0;
