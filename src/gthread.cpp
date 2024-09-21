@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <atomic>
+#include <stdexcept>
 
 namespace gthread::__impl {
 
@@ -86,9 +87,9 @@ namespace gthread::__impl {
         auto& ctx = contexts[std::this_thread::get_id()];
 
         // If the context does not have a current gthread, then this has been called from the main kernel thread
-        // I'm not sure what to do here
+        // and an exception is thrown
         if (!ctx.current)
-            std::exit(EXIT_FAILURE);
+            throw std::runtime_error("Cannot exit a gthread without a current gthread to exit");
         
         else {
             ctx.current->stop();

@@ -130,7 +130,7 @@ namespace gthread {
             // Yields the current gthread. If this is called without a current gthread, the scheduler is ran
             void yield_current_green_thread();
 
-            // Exits the current gthread. If this is 
+            // Exits the current gthread. If this is called without a current gthread, an exception is thrown
             void exit_current_green_thread();
         };
 
