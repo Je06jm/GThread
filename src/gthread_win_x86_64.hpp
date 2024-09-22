@@ -4,10 +4,13 @@
 namespace gthread::__impl {
 
     // The gthread class to handle the Windows 64 bit C calling convention
-    // See more here: https://en.wikipedia.org/wiki/X86_calling_conventions#x86-64_calling_conventions
+    // See more here:
+    // https://en.wikipedia.org/wiki/X86_calling_conventions#x86-64_calling_conventions
     class win_x86_64_gthread : public gthread {
     public:
-        win_x86_64_gthread(Function function, void* user_params, size_t stack_size, bool is_setup) : gthread{function, user_params, stack_size, is_setup} {}
+        win_x86_64_gthread(Function function, void* user_params,
+                           size_t stack_size, bool is_setup)
+            : gthread{function, user_params, stack_size, is_setup} {}
 
         struct platform_context {
             uint64_t rsp;
@@ -23,10 +26,9 @@ namespace gthread::__impl {
         platform_context platform_ctx;
 
 #ifdef __GNUC__
-        __attribute__((naked))
-        static void swap_platform_contexts(platform_context*, platform_context*) {
-            asm(
-                "movq %rsp,  0(%rcx) \n"
+        __attribute__((naked)) static void swap_platform_contexts(
+            platform_context*, platform_context*) {
+            asm("movq %rsp,  0(%rcx) \n"
                 "movq %rcx,  8(%rcx) \n"
                 "movq %rbx, 16(%rcx) \n"
                 "movq %rbp, 24(%rcx) \n"
@@ -37,7 +39,7 @@ namespace gthread::__impl {
                 "movq %r14, 64(%rcx) \n"
                 "movq %r15, 72(%rcx) \n"
 
-                "addq $95, %rcx \n" // 80 + 15
+                "addq $95, %rcx \n"  // 80 + 15
                 "andq $~15, %rcx \n"
                 "fxsave (%rcx) \n"
 
@@ -56,19 +58,20 @@ namespace gthread::__impl {
                 "andq $~15, %rdx \n"
                 "fxrstor (%rdx) \n"
 
-                "ret"
-            );
+                "ret");
         }
 #else
         // swap_platform_context is not implemented on purpose
-        static void swap_platform_contexts(platform_context* current, platform_context* next);
+        static void swap_platform_contexts(platform_context* current,
+                                           platform_context* next);
 #endif
 
         void platform_setup() override {
             // A hack to get floating operations work on gthreads
             swap_platform_contexts(&platform_ctx, &platform_ctx);
 
-            platform_ctx.rsp = reinterpret_cast<uint64_t>(stack.get()) + static_cast<uint64_t>(stack_size);
+            platform_ctx.rsp = reinterpret_cast<uint64_t>(stack.get()) +
+                               static_cast<uint64_t>(stack_size);
             platform_ctx.rsp -= 32;
 
             *reinterpret_cast<Function*>(platform_ctx.rsp) = function;
@@ -81,5 +84,5 @@ namespace gthread::__impl {
             swap_platform_contexts(&platform_ctx, &next_thread->platform_ctx);
         }
     };
-}
+}  // namespace gthread::__impl
 #endif

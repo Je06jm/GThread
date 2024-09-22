@@ -7,6 +7,10 @@ AR_FLAGS = rcs
 LIBRARY_NAME = libgthread.a
 EXAMPLE_NAME = gt_example
 
+FORMAT = clang-format
+FORMAT_FLAGS = --style=file -i
+FILES_TO_FORMAT = $(wildcard src/*) $(wildcard include/*) $(wildcard example/*)
+
 FILES_TO_REMOVE = $(wildcard $(EXAMPLE_NAME)) $(wildcard $(EXAMPLE_NAME).*) $(wildcard $(LIBRARY_NAME)) $(wildcard src/*.o)
 
 all: CXX_FLAGS += -O2
@@ -25,6 +29,9 @@ example: library
 example_debug: CXX_FLAGS += -g
 example_debug: library
 	g++ -DGTHREAD_INIT_ON_START $(CXX_FLAGS) example/*.cpp libgthread.a -o $(EXAMPLE_NAME)
+
+format:
+	$(FORMAT) $(FORMAT_FLAGS) $(FILES_TO_FORMAT)
 
 clean:
 	@-rm $(FILES_TO_REMOVE)
