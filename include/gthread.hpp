@@ -451,9 +451,18 @@ namespace gthread {
         return f;
     }
 
+    // Yields the current gthread. If this is called without a current
+    // gthread, the scheduler is ran
     inline void yield() { __impl::kernel_threads.yield_current_green_thread(); }
 
+    // Exits the current gthread. If this is called without a current
+    // gthread, an exception is thrown
     inline void exit() { __impl::kernel_threads.exit_current_green_thread(); }
+
+    // Runs all the green threads, only returning when all are processed
+    inline void process_all_gthreads() {
+        __impl::kernel_threads.process_green_threads();
+    }
 
 }  // namespace gthread
 
